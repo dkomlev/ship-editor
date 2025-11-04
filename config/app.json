@@ -1,0 +1,21 @@
+{
+  "meta": { "version": "0.5.3", "schema_version": 1 },
+  "paths": { "ship_config_path": "./ships/fighter/fighter_v01.json" },
+  "world": { 
+    "tick_rate_hz": 60, 
+    "c_prime": 1000, 
+    "bounds_rect_m": { "w": 10000, "h": 10000 }, 
+    "wrap": true, 
+    "seed": 123456 
+  },
+  "render": { 
+    "zoom": { "min": 0.5, "max": 3.0, "start": 1.0 }, 
+    "target_fps": 60, 
+    "background": { "color_rgba": [9,12,20,255] }, 
+    "grid": { "enabled": false, "meters_per_cell": 100 } 
+  },
+  "hud": { 
+    "safe_insets_px": { "top": 12, "bottom": 12, "left": 12, "right": 12 }, 
+    "theme": "dark" 
+  }
+}
