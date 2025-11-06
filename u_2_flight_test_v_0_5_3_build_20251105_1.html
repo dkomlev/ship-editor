@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>U2 FlightTest v0.5.3 — build 20251105.1</title>
+  <style>
+    html,body{margin:0;height:100%;background:#090C14;color:#e6edf3;font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Ubuntu,Helvetica,Arial,sans-serif}
+    #root{position:relative;height:100%}
+    canvas{display:block;width:100vw;height:100vh;background:#090C14}
+    .hud{position:fixed;left:12px;top:12px;right:12px;display:flex;justify-content:space-between;pointer-events:none}
+    .panel{background:rgba(15,18,26,.6);backdrop-filter:blur(8px);border:1px solid rgba(148,163,184,.25);border-radius:14px;padding:8px 12px;box-shadow:0 8px 20px rgba(0,0,0,.25)}
+    .hud .left,.hud .right{display:flex;gap:8px;align-items:center}
+    .tag{font-size:12px;opacity:.9}
+    .big{font-weight:600;letter-spacing:.3px}
+    .hint{position:fixed;left:12px;bottom:12px;right:12px;display:flex;justify-content:space-between;gap:8px;pointer-events:none}
+    .hint .panel{font-size:12px;line-height:1.4}
+    .btns{position:fixed;right:12px;bottom:12px;display:flex;flex-direction:column;gap:8px;pointer-events:auto}
+    .btn{background:#1f2937;color:#e5e7eb;border:1px solid rgba(148,163,184,.25);border-radius:12px;padding:10px 14px;cursor:pointer;user-select:none;transition:.2s}
+    .btn:hover{transform:translateY(-1px)}
+    #overlayMsg{position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);background:rgba(17,24,39,.8);border:1px solid rgba(148,163,184,.35);border-radius:16px;padding:14px 18px;text-align:center;display:none}
+    .badge{display:inline-block;border:1px solid rgba(148,163,184,.35);border-radius:10px;padding:2px 8px;font-size:11px;margin-left:6px;color:#93c5fd}
+    a.link{color:#93c5fd;text-decoration:none;border-bottom:1px dashed rgba(147,197,253,.6)}
+    @media (max-width: 720px){.hint{display:none}}
+  </style>
+</head>
+<body>
+  <div id="root">
+    <canvas id="view" width="1280" height="720"></canvas>
+    <div class="hud">
+      <div class="left panel">
+        <span class="big">U2 FlightTest <span class="badge">v0.5.3+20251105.1</span></span>
+        <span class="tag" id="statusCoupled">Coupled</span>
+        <span class="tag" id="statusAP">AP: ON</span>
+        <span class="tag" id="statusColl">Coll: AABB</span>
+        <span class="tag" id="statusZoom">Zoom: 1.00×</span>
+      </div>
+      <div class="right panel"><span class="tag" id="telemetry">v=0 γ=1.00 a=0g θ=0 ω=0</span></div>
+    </div>
+    <div class="hint">
+      <div class="panel" style="max-width:60ch">
+        <b>Клавиши:</b> W/S — тяга, A/D — стрейф, Q/E — поворот, Space — тормоз, C — Coupled, R — автопилот,<br/>+/- — зум, F2 — режим коллизий (AABB/Alpha), F3 — оверлей, F12 — скриншот.
+      </div>
+      <div class="panel"><span id="logLink"></span></div>
+    </div>
+    <div class="btns">
+      <div class="btn" id="btnBrake">Тормоз</div>
+      <div class="btn" id="btnZoomIn">Зум +</div>
+      <div class="btn" id="btnZoomOut">Зум −</div>
+    </div>
+    <div id="overlayMsg" class="panel"></div>
+  </div>
+
+  <script>
+  // ===== Config (v0.5.3 + build) =====
+  const APP = {
+    meta:{version:"0.5.3", build:"20251105.1"},
+    world:{tick:60, c:1000, w:10000, h:10000, seed:123456},
+    render:{zoom:{min:0.5,max:3,start:1}, bg:[9,12,20,255], grid:{enabled:false, step:100}},
+    input:{keys:{zoom_in:"+", zoom_out:"-", coupling:"C", ap:"R"}},
+    collision:{mode_default:"AABB", overlay:false, alpha_thr:20, fallback_zoom:[0.6,2.5]},
+    ast:{cov:0.012, dens:2700, rmin:3, rmax:120, margin:50, dist:{mu:2.0,sigma:1.1}},
+    log:{enabled:true, filename:"telemetry.log"}
+  };
+  const SHIP = {
+    mass:10000,
+    bbox:{w:25.0, l:20.5}, // meters (w==height screen-wise)
+    mpp:0.05,              // meters per (sprite) pixel scale unit
+    thrust:1100000,        // N
+    rcs:{strafe:160000, alpha:1.8, omega:2.0},
+    g:{long:6.0, lat:4.0},
+    assist:{enabled:true, omega_cap:1.2, alpha_cap:0.9, gain:0.6}
+  };
+
+  // ===== Helpers =====
+  const G0=9.80665, TAU=Math.PI*2;
+  const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+  const lerp=(a,b,t)=>a+(b-a)*t;
+  const now=()=>performance.now();
+  // DPR-aware canvas
+  const cvs=document.getElementById('view');
+  const ctx=cvs.getContext('2d');
+  function resize(){ const dpr=devicePixelRatio||1; cvs.width=Math.floor(innerWidth*dpr); cvs.height=Math.floor(innerHeight*dpr); cvs.style.width=innerWidth+'px'; cvs.style.height=innerHeight+'px'; }
+  addEventListener('resize',resize); resize();
+
+  // ===== World =====
+  let zoom=APP.render.zoom.start;
+  let collMode=APP.collision.mode_default;
+  let collOverlay=APP.collision.overlay;
+  const world={w:APP.world.w,h:APP.world.h,c:APP.world.c, ast:[]};
+  // simple seeded RNG (xorshift)
+  let S=[123456789,362436069,521288629,APP.world.seed>>>0];
+  function rnd(){ let t=S[0]^(S[0]<<11); S[0]=S[1]; S[1]=S[2]; S[2]=S[3]; return (S[3]=(S[3]^(S[3]>>>19)^(t^(t>>>8)))>>>0)/4294967296; }
+  function lognorm(mu,si){ const u1=rnd()||1e-9,u2=rnd(); const z=Math.sqrt(-2*Math.log(u1))*Math.cos(TAU*u2); return Math.exp(mu+si*z); }
+  function genAst(){ world.ast.length=0; const target=APP.ast.cov*world.w*world.h; let area=0, guard=0; while(area<target&&guard++<5000){ let r=clamp(lognorm(APP.ast.dist.mu,APP.ast.dist.sigma),APP.ast.rmin,APP.ast.rmax); const x=APP.ast.margin+rnd()*(world.w-2*APP.ast.margin); const y=APP.ast.margin+rnd()*(world.h-2*APP.ast.margin); world.ast.push({x,y,r,m:(4/3)*Math.PI*r*r*r*APP.ast.dens}); area+=Math.PI*r*r; } }
+  genAst();
+
+  // ===== Ship =====
+  const state={x:world.w/2,y:world.h/2,vx:0,vy:0,theta:0,omega:0,alive:true,coupled:SHIP.assist.enabled,ap:true,spawnEnd:now()+2000};
+  const input={F:0,B:0,L:0,R:0,QL:0,QR:0,br:0};
+
+  // ===== UI refs =====
+  const elT=document.getElementById('telemetry');
+  const elC=document.getElementById('statusCoupled');
+  const elAP=document.getElementById('statusAP');
+  const elColl=document.getElementById('statusColl');
+  const elZoom=document.getElementById('statusZoom');
+  const overlay=document.getElementById('overlayMsg');
+
+  // ===== Input =====
+  const down=new Set();
+  addEventListener('keydown',e=>{ if(e.repeat) return; down.add(e.code);
+    if(e.code==='Enter' && !state.alive) restart();
+    if(e.code==='F12'){ e.preventDefault(); const a=document.createElement('a'); a.download=`u2-shot-${APP.meta.build}.png`; a.href=cvs.toDataURL('image/png'); a.click(); }
+    if(e.code==='F2'){ collMode = (collMode==='AABB'?'Alpha':'AABB'); elColl.textContent='Coll: '+collMode; }
+    if(e.code==='F3'){ collOverlay = !collOverlay; }
+    if(e.key.toUpperCase()===APP.input.keys.coupling){ state.coupled=!state.coupled; elC.textContent=state.coupled?'Coupled':'Decoupled'; }
+    if(e.key.toUpperCase()===APP.input.keys.ap){ state.ap=!state.ap; elAP.textContent='AP: '+(state.ap?'ON':'OFF'); }
+    if(e.key===APP.input.keys.zoom_in){ e.preventDefault(); zoom=clamp(zoom+0.1*(APP.render.zoom.max-APP.render.zoom.min),APP.render.zoom.min,APP.render.zoom.max); }
+    if(e.key===APP.input.keys.zoom_out){ e.preventDefault(); zoom=clamp(zoom-0.1*(APP.render.zoom.max-APP.render.zoom.min),APP.render.zoom.min,APP.render.zoom.max); }
+  });
+  addEventListener('keyup',e=>down.delete(e.code));
+  document.getElementById('btnBrake').addEventListener('pointerdown',()=>input.br=1);
+  document.getElementById('btnBrake').addEventListener('pointerup',()=>input.br=0);
+  document.getElementById('btnZoomIn').addEventListener('click',()=>{ zoom=clamp(zoom+0.1,APP.render.zoom.min,APP.render.zoom.max); });
+  document.getElementById('btnZoomOut').addEventListener('click',()=>{ zoom=clamp(zoom-0.1,APP.render.zoom.min,APP.render.zoom.max); });
+
+  function readInputs(){ input.F=input.B=input.L=input.R=input.QL=input.QR=0; input.br=0;
+    for(const c of down){ if(c==='KeyW') input.F=1; if(c==='KeyS') input.B=1; if(c==='KeyA') input.L=1; if(c==='KeyD') input.R=1; if(c==='KeyQ') input.QL=1; if(c==='KeyE') input.QR=1; if(c==='Space') input.br=1; }
+  }
+
+  // ===== Physics & helpers =====
+  function wrap(v,max){ if(v<0) v+=max; if(v>=max) v-=max; return v; }
+  function aabb(){ const w=SHIP.bbox.l,h=SHIP.bbox.w; const c=Math.cos(state.theta),s=Math.sin(state.theta); const hw=w/2,hh=h/2; const ex=Math.abs(hw*c)+Math.abs(hh*s); const ey=Math.abs(hw*s)+Math.abs(hh*c); return {minx:state.x-ex,maxx:state.x+ex,miny:state.y-ey,maxy:state.y+ey}; }
+  function collAABB(ast){ const b=aabb(); const cx=clamp(ast.x,b.minx,b.maxx), cy=clamp(ast.y,b.miny,b.maxy); const dx=ast.x-cx, dy=ast.y-cy; return dx*dx+dy*dy <= ast.r*ast.r; }
+
+  function step(dt){ readInputs();
+    const cpr=world.c; const sp=Math.hypot(state.vx,state.vy); const gamma=1/Math.sqrt(Math.max(1e-9,1-(sp*sp)/(cpr*cpr)));
+    let ax=0, ay=0;
+    const aThrust = SHIP.thrust/SHIP.mass; // m/s^2
+    const nx=Math.cos(state.theta), ny=Math.sin(state.theta);
+    ax += (input.F - input.B) * aThrust * nx;
+    ay += (input.F - input.B) * aThrust * ny;
+    const aStrafe = SHIP.rcs.strafe/SHIP.mass;
+    const rx=Math.cos(state.theta+Math.PI/2), ry=Math.sin(state.theta+Math.PI/2);
+    ax += (input.R - input.L) * aStrafe * rx;
+    ay += (input.R - input.L) * aStrafe * ry;
+    if(input.br && sp>1e-3){ ax += -state.vx/sp * aThrust; ay += -state.vy/sp * aThrust; }
+    if(sp>1e-4){ const vxn=state.vx/sp, vyn=state.vy/sp; const a_par=ax*vxn+ay*vyn; let axp=a_par*vxn, ayp=a_par*vyn; let axo=ax-axp, ayo=ay-ayp; const capPar=1/(gamma*gamma*gamma), capPerp=1/gamma; axp*=capPar; ayp*=capPar; axo*=capPerp; ayo*=capPerp; ax=axp+axo; ay=ayp+ayo; }
+    // g-limits (approx.)
+    const gL=SHIP.g.long*G0, gT=SHIP.g.lat*G0; const sx=Math.cos(state.theta), sy=Math.sin(state.theta); const rxx=Math.cos(state.theta+Math.PI/2), ryy=Math.sin(state.theta+Math.PI/2);
+    let a_long=ax*sx+ay*sy, a_lat=ax*rxx+ay*ryy; a_long=clamp(a_long,-gL,gL); a_lat=clamp(a_lat,-gT,gT); ax=a_long*sx+a_lat*rxx; ay=a_long*sy+a_lat*ryy;
+    state.vx+=ax*dt; state.vy+=ay*dt;
+    const lim=0.999*cpr, sp2=Math.hypot(state.vx,state.vy); if(sp2>lim){ const k=lim/sp2; state.vx*=k; state.vy*=k; }
+    state.x+=state.vx*dt; state.y+=state.vy*dt; state.x=wrap(state.x,world.w); state.y=wrap(state.y,world.h);
+    // rotation
+    if(state.coupled){ const ss=Math.hypot(state.vx,state.vy); if(ss>0.5){ const tgt=Math.atan2(state.vy,state.vx); const err=Math.atan2(Math.sin(tgt-state.theta), Math.cos(tgt-state.theta)); let alpha=clamp(err*SHIP.assist.gain - state.omega*0.5, -SHIP.assist.alpha_cap, SHIP.assist.alpha_cap); alpha=clamp(alpha,-SHIP.rcs.alpha, SHIP.rcs.alpha); state.omega = clamp(state.omega + alpha*dt, -Math.min(SHIP.assist.omega_cap,SHIP.rcs.omega), Math.min(SHIP.assist.omega_cap,SHIP.rcs.omega)); } else { state.omega*=0.98; } }
+    else { state.omega = clamp(state.omega + (input.QR-input.QL)*SHIP.rcs.alpha*dt, -SHIP.rcs.omega, SHIP.rcs.omega); }
+    state.theta = (state.theta + state.omega*dt + TAU) % TAU;
+    // collisions (AABB only, Alpha toggler is visual)
+    if(state.alive){ const b=aabb(); for(let i=world.ast.length-1;i>=0;i--){ const a=world.ast[i]; if(a.x+a.r<b.minx||a.x-a.r>b.maxx||a.y+a.r<b.miny||a.y-a.r>b.maxy) continue; if(collAABB(a)){ state.alive=false; // shrink asteroid by ship mass
+          const m0=a.m; const m1=Math.max(m0-SHIP.mass,0); a.m=m1; a.r = m1>0 ? a.r*Math.cbrt(m1/m0) : 0; if(a.r<=0) world.ast.splice(i,1);
+          overlay.textContent='Корабль уничтожен. Нажмите Enter для рестарта.'; overlay.style.display='block'; break; } }
+    }
+    const ag=Math.hypot(ax,ay)/G0; elT.textContent=`v=${Math.hypot(state.vx,state.vy).toFixed(1)} γ=${(1/Math.sqrt(Math.max(1e-9,1-(Math.hypot(state.vx,state.vy)**2)/(cpr*cpr)))).toFixed(3)} a=${ag.toFixed(2)}g θ=${state.theta.toFixed(2)} ω=${state.omega.toFixed(2)}`;
+  }
+
+  function restart(){ overlay.style.display='none'; Object.assign(state,{x:world.w/2,y:world.h/2,vx:0,vy:0,theta:0,omega:0,alive:true,coupled:SHIP.assist.enabled,spawnEnd:now()+2000}); zoom=APP.render.zoom.start; collMode=APP.collision.mode_default; collOverlay=APP.collision.overlay; elC.textContent=state.coupled?'Coupled':'Decoupled'; elColl.textContent='Coll: '+collMode; elZoom.textContent='Zoom: '+zoom.toFixed(2)+'×'; }
+
+  // ===== Rendering =====
+  function drawShip(ctx){
+    // Procedural low-poly fighter (top view), centered at (0,0), facing +X
+    ctx.save();
+    ctx.beginPath();
+    // hull outline
+    ctx.moveTo(60,0);  // nose
+    ctx.lineTo(30,-18);
+    ctx.lineTo(-12,-22);
+    ctx.lineTo(-50,-10);
+    ctx.lineTo(-58,-4);
+    ctx.lineTo(-58,4);
+    ctx.lineTo(-50,10);
+    ctx.lineTo(-12,22);
+    ctx.lineTo(30,18);
+    ctx.closePath();
+    ctx.fillStyle="#c7cbd2"; ctx.fill();
+    ctx.lineWidth=2; ctx.strokeStyle="#4b5563"; ctx.stroke();
+    // canopy
+    ctx.beginPath(); ctx.roundRect(5,-10,30,20,8); ctx.fillStyle="#2f3e4f"; ctx.fill();
+    // wing accents
+    ctx.beginPath(); ctx.moveTo(18,-16); ctx.lineTo(-20,-18); ctx.lineTo(-40,-8); ctx.lineTo(-12,-10); ctx.closePath(); ctx.fillStyle="#8b929c"; ctx.fill();
+    ctx.beginPath(); ctx.moveTo(18,16); ctx.lineTo(-20,18); ctx.lineTo(-40,8); ctx.lineTo(-12,10); ctx.closePath(); ctx.fillStyle="#8b929c"; ctx.fill();
+    // engines glow (depends on thrust)
+    const power = input.F - input.B; if(power>0){ ctx.globalAlpha=0.65; ctx.fillStyle="#6eb6ff"; for(let i=-12;i<=12;i+=12){ ctx.beginPath(); ctx.ellipse(-56,i,20*power,6,0,0,TAU); ctx.fill(); } ctx.globalAlpha=1; }
+    ctx.restore();
+  }
+
+  function draw(){ const W=cvs.width,H=cvs.height; ctx.fillStyle=`rgb(${APP.render.bg[0]},${APP.render.bg[1]},${APP.render.bg[2]})`; ctx.fillRect(0,0,W,H);
+    const pxPerM=(1/SHIP.mpp)*zoom; const camX=state.x, camY=state.y;
+    // asteroids
+    ctx.save(); ctx.fillStyle="#1f2937"; ctx.strokeStyle="#374151"; for(const a of world.ast){ let dx=a.x-camX; if(dx<-world.w/2) dx+=world.w; if(dx>world.w/2) dx-=world.w; let dy=a.y-camY; if(dy<-world.h/2) dy+=world.h; if(dy>world.h/2) dy-=world.h; const sx=W/2+dx*pxPerM, sy=H/2-dy*pxPerM, r=a.r*pxPerM; ctx.beginPath(); ctx.arc(sx,sy,Math.max(1,r),0,TAU); ctx.fill(); ctx.stroke(); }
+    ctx.restore();
+    // ship
+    if(state.alive){ ctx.save(); ctx.translate(W/2,H/2); ctx.rotate(state.theta); ctx.scale(zoom,zoom); drawShip(ctx); ctx.restore(); }
+    // overlay AABB
+    if(collOverlay){ const b=aabb(); const x0=W/2+(b.minx-camX)*pxPerM; const y0=H/2-(b.maxy-camY)*pxPerM; const ww=(b.maxx-b.minx)*pxPerM; const hh=(b.maxy-b.miny)*pxPerM; ctx.save(); ctx.strokeStyle=(collMode==='Alpha')?"#34d399":"#f59e0b"; ctx.lineWidth=2; ctx.strokeRect(x0,y0,ww,hh); ctx.restore(); }
+  }
+
+  // ===== Loop =====
+  function tick(){ const dt=1/APP.world.tick; step(dt); draw(); elAP.textContent='AP: '+(state.ap?'ON':'OFF'); elC.textContent=state.coupled?'Coupled':'Decoupled'; elColl.textContent='Coll: '+collMode; elZoom.textContent='Zoom: '+zoom.toFixed(2)+'×'; requestAnimationFrame(tick); }
+  requestAnimationFrame(tick);
+
+  // ===== Logs =====
+  const lines=[]; setInterval(()=>{ if(!APP.log.enabled) return; const c=world.c; const sp=Math.hypot(state.vx,state.vy); const gamma=(1/Math.sqrt(Math.max(1e-9,1-(sp*sp)/(c*c)))).toFixed(5); const t=(now()/1000).toFixed(3); lines.push([t,state.x.toFixed(3),state.y.toFixed(3),state.vx.toFixed(3),state.vy.toFixed(3),sp.toFixed(3),gamma,zoom.toFixed(3), state.coupled?1:0].join(',')); if(lines.length>15000) lines.shift(); const a=document.createElement('a'); a.textContent='Скачать лог телеметрии'; a.className='link'; a.href=URL.createObjectURL(new Blob([lines.join('\n')],{type:'text/plain'})); a.download=APP.log.filename; const r=document.getElementById('logLink'); r.innerHTML=''; r.appendChild(a); },3000);
+
+  // restart helper
+  addEventListener('keydown',e=>{ if(e.code==='Enter' && !state.alive) restart(); });
+  </script>
+</body>
+</html>
