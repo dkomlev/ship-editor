@@ -1,6 +1,6 @@
 {
   "meta": {
-    "id": "fighter_v04",
+    "id": "fighter_v01",
     "class": "fighter",
     "name": "U2 Test Fighter",
     "version": "0.5.3",
@@ -8,16 +8,14 @@
   },
   "mass": {
     "mass_kg": 10000,
-    "inertia_override": {
-      "Izz_kg_m2": 871041.667
-    }
+    "inertia_override": null
   },
   "geometry": {
     "bbox_m": {
       "width": 25,
       "length": 20.5
     },
-    "hull_radius_m": 16.165
+    "hull_radius_m": 16.17
   },
   "sprite": {
     "path": "assets/ships/fighter_top.png",
@@ -31,13 +29,13 @@
     },
     "orientation": "nose_right",
     "alpha_thr": 16,
-    "m_per_px": 0.04443
+    "m_per_px": 0.05
   },
   "propulsion": {
-    "main_engine_thrust_max_N": 100000
+    "main_engine_thrust_max_N": 1100000
   },
   "rcs": {
-    "strafe_thrust_N": 392266,
+    "strafe_thrust_N": 160000,
     "turn_alpha_max_radps2": 1.8,
     "turn_omega_max_radps": 2
   },
@@ -53,10 +51,10 @@
       "sustained_g": 4,
       "burst_g": 6,
       "burst_duration_s": 1.5,
-      "recovery_cooldown_s": 3.75
+      "recovery_cooldown_s": 4
     },
     "behavior": {
-      "smoothing_tau_s": 0.18,
+      "smoothing_tau_s": 0.16,
       "blackout_model": "none"
     }
   },
