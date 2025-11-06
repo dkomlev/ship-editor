@@ -1,0 +1,1434 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>U2 FlightTest v0.5.3</title>
+    <style>
+        :root {
+            --bg-dark: #090c14;
+            --text-light: #e2e8f0;
+            --accent: #3b82f6;
+            --danger: #ef4444;
+            --success: #10b981;
+            --safe-top: 12px;
+            --safe-bottom: 12px;
+            --safe-left: 12px;
+            --safe-right: 12px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-dark);
+            color: var(--text-light);
+            overflow: hidden;
+            touch-action: none;
+            user-select: none;
+        }
+
+        #game-container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
+        }
+
+        canvas {
+            display: block;
+            background-color: var(--bg-dark);
+        }
+
+        /* HUD элементы */
+        .hud {
+            position: absolute;
+            pointer-events: none;
+            z-index: 10;
+        }
+
+        .hud-top {
+            top: var(--safe-top);
+            left: var(--safe-left);
+            right: var(--safe-right);
+            display: flex;
+            justify-content: space-between;
+            padding: 8px;
+        }
+
+        .hud-bottom {
+            bottom: var(--safe-bottom);
+            left: var(--safe-left);
+            right: var(--safe-right);
+            display: flex;
+            justify-content: space-between;
+            padding: 8px;
+        }
+
+        .telemetry {
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        .status-indicators {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .status {
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            text-align: center;
+        }
+
+        .status-coupled {
+            background-color: var(--accent);
+        }
+
+        .status-decoupled {
+            background-color: var(--danger);
+        }
+
+        .status-autopilot {
+            background-color: var(--success);
+        }
+
+        .status-collision {
+            background-color: #f59e0b;
+        }
+
+        /* Touch controls */
+        .touch-controls {
+            position: absolute;
+            z-index: 5;
+            pointer-events: auto;
+        }
+
+        .joystick-area {
+            position: absolute;
+            width: 192px;
+            height: 192px;
+            border-radius: 50%;
+            background-color: rgba(255, 255, 255, 0.1);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .joystick {
+            width: 80px;
+            height: 80px;
+            border-radius: 50%;
+            background-color: rgba(255, 255, 255, 0.3);
+            touch-action: none;
+        }
+
+        .quick-nose-pad {
+            position: absolute;
+            width: 140px;
+            height: 140px;
+            border-radius: 50%;
+            background-color: rgba(255, 255, 255, 0.1);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .quick-nose {
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background-color: rgba(255, 255, 255, 0.3);
+        }
+
+        .touch-button {
+            position: absolute;
+            width: 70px;
+            height: 70px;
+            border-radius: 50%;
+            background-color: rgba(255, 255, 255, 0.2);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            color: white;
+            font-size: 24px;
+        }
+
+        /* Модальные окна */
+        .modal {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.9);
+            padding: 24px;
+            border-radius: 8px;
+            z-index: 100;
+            max-width: 90%;
+            max-height: 90%;
+            overflow-y: auto;
+        }
+
+        .modal h2 {
+            margin-bottom: 16px;
+            color: var(--accent);
+        }
+
+        .modal button {
+            background-color: var(--accent);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 16px;
+        }
+
+        .hidden {
+            display: none;
+        }
+
+        /* Адаптивность */
+        @media (max-width: 768px) {
+            .telemetry {
+                font-size: 12px;
+                padding: 6px 8px;
+            }
+            
+            .status {
+                font-size: 10px;
+                padding: 2px 4px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div id="game-container">
+        <canvas id="game-canvas"></canvas>
+        
+        <!-- HUD -->
+        <div class="hud hud-top">
+            <div class="telemetry" id="telemetry-display">
+                Скорость: 0 м/с | γ: 1.00 | Ускорение: 0.0 g | Зум: 1.0x
+            </div>
+            <div class="status-indicators">
+                <div class="status status-coupled" id="coupled-status">COUPLED</div>
+                <div class="status status-autopilot hidden" id="autopilot-status">AUTOPILOT</div>
+                <div class="status status-collision hidden" id="collision-status">AABB</div>
+            </div>
+        </div>
+        
+        <div class="hud hud-bottom">
+            <div class="telemetry" id="position-display">
+                Позиция: (0, 0) | Угол: 0.00 рад
+            </div>
+        </div>
+        
+        <!-- Touch controls (только для мобильных) -->
+        <div class="touch-controls hidden" id="touch-controls">
+            <div class="joystick-area" id="left-stick-area">
+                <div class="joystick" id="left-stick"></div>
+            </div>
+            
+            <div class="quick-nose-pad" id="nose-pad-area">
+                <div class="quick-nose" id="nose-pad"></div>
+            </div>
+            
+            <div class="touch-button" id="brake-button">⏹</div>
+            <div class="touch-button" id="zoom-plus-button">+</div>
+            <div class="touch-button" id="zoom-minus-button">-</div>
+        </div>
+        
+        <!-- Модальные окна -->
+        <div id="game-over-modal" class="modal hidden">
+            <h2>КОРАБЛЬ УНИЧТОЖЕН</h2>
+            <p>Столкновение с астероидом привело к уничтожению корабля.</p>
+            <button id="restart-button">Перезапуск</button>
+        </div>
+        
+        <div id="welcome-modal" class="modal">
+            <h2>U2 FlightTest v0.5.3</h2>
+            <p>Добро пожаловать в симулятор космического корабля!</p>
+            <div id="desktop-controls">
+                <h3>Управление (ПК):</h3>
+                <ul>
+                    <li>W/S - Тяга вперед/назад</li>
+                    <li>A/D - Стрейф влево/вправо</li>
+                    <li>Q/E - Поворот влево/вправо</li>
+                    <li>Space - Торможение</li>
+                    <li>C - Переключение Coupled/Decoupled</li>
+                    <li>R - Автопилот Random</li>
+                    <li>+/- - Зум</li>
+                    <li>F2 - Режим коллизий (AABB/Alpha)</li>
+                    <li>F3 - Оверлей коллизий</li>
+                    <li>F12 - Скриншот</li>
+                </ul>
+            </div>
+            <div id="mobile-controls" class="hidden">
+                <h3>Управление (мобильные):</h3>
+                <p>Используйте виртуальные джойстики для управления.</p>
+            </div>
+            <button id="start-button">Начать полет</button>
+        </div>
+    </div>
+
+    <script>
+        // Конфигурация приложения (AppConfig)
+        const appConfig = {
+            meta: { version: "0.5.3", schema_version: 1 },
+            paths: { ship_config_path: "./configs/ship_fighter.json" },
+            world: { 
+                tick_rate_hz: 60,
+                c_prime: 1000,
+                bounds_rect_m: { w: 10000, h: 10000 },
+                wrap: true,
+                seed: 123456
+            },
+            render: { 
+                zoom: { min: 0.5, max: 3.0, start: 1.0 },
+                target_fps: 60,
+                background: { color_rgba: [9, 12, 20, 255] },
+                grid: { enabled: false, meters_per_cell: 100 }
+            },
+            hud: { 
+                safe_insets_px: { top: 12, bottom: 12, left: 12, right: 12 },
+                theme: "dark"
+            },
+            input: {
+                keys: { 
+                    thrust_forward: "W",
+                    thrust_backward: "S",
+                    strafe_left: "A",
+                    strafe_right: "D",
+                    turn_left: "Q",
+                    turn_right: "E",
+                    stop: "Space",
+                    coupling_toggle: "C",
+                    autopilot_random_toggle: "R",
+                    zoom_in: "+",
+                    zoom_out: "-",
+                    collision_mode_toggle: "F2",
+                    collision_overlay_toggle: "F3",
+                    screenshot_export: "F12"
+                },
+                touch: { 
+                    deadzone_px: 12,
+                    stick_radius_px: 96,
+                    brake_on_release: false,
+                    gestures: { hold_to_enable_ms: 700, double_tap_threshold_ms: 250 },
+                    layout: {
+                        left_stick: { anchor: "bl", x_pct: 12, y_pct: 16 },
+                        quick_nose_pad: { anchor: "br", x_pct: 12, y_pct: 18 },
+                        brake_button: { anchor: "tr", x_pct: 10, y_pct: 14 },
+                        zoom_plus: { anchor: "tr", x_pct: 10, y_pct: 28 },
+                        zoom_minus: { anchor: "tr", x_pct: 10, y_pct: 40 }
+                    }
+                }
+            },
+            collision: { 
+                mode_default: "Alpha",
+                overlay_visible_default: false,
+                alpha_thr: 20,
+                fallback_threshold: {
+                    zoom_min: 0.6,
+                    zoom_max: 2.5,
+                    on_taint: "AABB"
+                }
+            },
+            asteroids: { 
+                coverage_fraction: 0.015,
+                density_kg_m3: 2700,
+                radius_m: { min: 3.0, max: 120.0 },
+                distribution: {
+                    type: "lognormal",
+                    params: { mu: 2.0, sigma: 1.1 }
+                },
+                margin_m: 50
+            },
+            autopilot: { 
+                random_enabled_default: true,
+                cmd_hold_ms_range: [400, 900],
+                thrust_range: [0.3, 1.0],
+                strafe_probability: 0.45,
+                turn_rate_scale: 1.0
+            },
+            logging: { 
+                enabled: true,
+                fields: ["t","x","y","vx","vy","speed","gamma","ax","ay","a_g","theta","omega","zoom","coupled"],
+                filename: "telemetry.log",
+                flush_mode: "on_stop"
+            },
+            debug: { 
+                overlay: { grid_enabled: false, colors: { grid: [148,163,184,96] } },
+                spawn: { safe_radius_m: 50 },
+                benchmark_profile: "i5-8250U"
+            }
+        };
+
+        // Конфигурация корабля (ShipConfig)
+        const shipConfig = {
+            meta: { id: "fighter_v01", class: "fighter", name: "U2 Test Fighter", version: "0.5.3", author: "U2 Team" },
+            mass: { mass_kg: 10000, inertia_override: null },
+            geometry: { bbox_m: { width: 25.0, length: 20.5 }, hull_radius_m: 16.17 },
+            sprite: { 
+                path: "assets/ships/fighter_top.png", 
+                size_px: { w: 512, h: 512 }, 
+                pivot_px: { x: 256, y: 256 }, 
+                orientation: "nose_right", 
+                alpha_thr: 16, 
+                m_per_px: 0.05 
+            },
+            propulsion: { main_engine_thrust_max_N: 1100000 },
+            rcs: { 
+                strafe_thrust_N: 160000, 
+                turn_alpha_max_radps2: 1.8, 
+                turn_omega_max_radps: 2.0 
+            },
+            g_limits: { 
+                profile: "fighter",
+                longitudinal: { 
+                    sustained_g: 6.0, 
+                    burst_g: 8.0, 
+                    burst_duration_s: 2.0, 
+                    recovery_cooldown_s: 5.0 
+                },
+                lateral: { 
+                    sustained_g: 4.0, 
+                    burst_g: 6.0, 
+                    burst_duration_s: 1.5, 
+                    recovery_cooldown_s: 4.0 
+                },
+                behavior: { 
+                    smoothing_tau_s: 0.16, 
+                    blackout_model: "none" 
+                }
+            },
+            assist: { 
+                coupled_enabled: true,
+                coupled_omega_cap_radps: 1.2,
+                coupled_alpha_cap_radps2: 0.9,
+                coupled_align_gain: 0.6,
+                coupled_deadzone_deg: 3,
+                autobrake_eps_mps: 0.1
+            },
+            spawn: { spawn_grace_seconds: 2.0 },
+            tags: ["fighter", "balanced", "test"]
+        };
+
+        // Основной класс приложения
+        class FlightTestApp {
+            constructor() {
+                this.canvas = document.getElementById('game-canvas');
+                this.ctx = this.canvas.getContext('2d');
+                this.resizeCanvas();
+                
+                // Состояние игры
+                this.gameState = {
+                    running: false,
+                    gameOver: false,
+                    autopilot: appConfig.autopilot.random_enabled_default,
+                    coupled: shipConfig.assist.coupled_enabled,
+                    collisionMode: appConfig.collision.mode_default,
+                    collisionOverlay: appConfig.collision.overlay_visible_default,
+                    zoom: appConfig.render.zoom.start,
+                    spawnGrace: shipConfig.spawn.spawn_grace_seconds
+                };
+                
+                // Состояние корабля
+                this.shipState = {
+                    x: 0, y: 0,
+                    vx: 0, vy: 0,
+                    theta: 0, // угол в радианах
+                    omega: 0, // угловая скорость
+                    ax: 0, ay: 0, // ускорение
+                    thrust: 0, strafe: 0, turn: 0 // управляющие воздействия
+                };
+                
+                // Астероиды
+                this.asteroids = [];
+                
+                // Управление
+                this.keys = {};
+                this.touchInput = {
+                    leftStick: { x: 0, y: 0 },
+                    nosePad: { x: 0, y: 0, active: false, holdStart: 0, doubleTapTimer: null }
+                };
+                
+                // Время
+                this.lastTime = 0;
+                this.dt = 1 / appConfig.world.tick_rate_hz;
+                this.accumulator = 0;
+                
+                // Инициализация
+                this.initAsteroids();
+                this.setupEventListeners();
+                this.updateHUD();
+                
+                // Запуск игрового цикла
+                requestAnimationFrame(this.gameLoop.bind(this));
+            }
+            
+            resizeCanvas() {
+                this.canvas.width = window.innerWidth;
+                this.canvas.height = window.innerHeight;
+                this.setupTouchControls();
+            }
+            
+            setupEventListeners() {
+                // Обработка клавиатуры
+                window.addEventListener('keydown', (e) => {
+                    this.keys[e.key.toUpperCase()] = true;
+                    this.handleKeyInput(e.key.toUpperCase(), true);
+                    
+                    // Отключение автопилота при любом ручном вводе
+                    if (this.gameState.autopilot && this.isUserInputKey(e.key.toUpperCase())) {
+                        this.gameState.autopilot = false;
+                        this.updateHUD();
+                    }
+                });
+                
+                window.addEventListener('keyup', (e) => {
+                    this.keys[e.key.toUpperCase()] = false;
+                    this.handleKeyInput(e.key.toUpperCase(), false);
+                });
+                
+                // Обработка изменения размера окна
+                window.addEventListener('resize', () => {
+                    this.resizeCanvas();
+                });
+                
+                // Обработка кнопок модальных окон
+                document.getElementById('start-button').addEventListener('click', () => {
+                    document.getElementById('welcome-modal').classList.add('hidden');
+                    this.gameState.running = true;
+                });
+                
+                document.getElementById('restart-button').addEventListener('click', () => {
+                    this.restartGame();
+                });
+                
+                // Обработка сенсорного ввода
+                this.setupTouchInput();
+                
+                // Определение типа устройства
+                this.isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent);
+                if (this.isMobile) {
+                    document.getElementById('desktop-controls').classList.add('hidden');
+                    document.getElementById('mobile-controls').classList.remove('hidden');
+                    document.getElementById('touch-controls').classList.remove('hidden');
+                }
+            }
+            
+            setupTouchInput() {
+                const leftStick = document.getElementById('left-stick');
+                const nosePad = document.getElementById('nose-pad');
+                
+                // Левый стик (тяга/стрейф)
+                this.setupJoystick(leftStick, (x, y) => {
+                    this.touchInput.leftStick.x = x;
+                    this.touchInput.leftStick.y = y;
+                    
+                    // Отключение автопилота при ручном вводе
+                    if (this.gameState.autopilot && (Math.abs(x) > 0.1 || Math.abs(y) > 0.1)) {
+                        this.gameState.autopilot = false;
+                        this.updateHUD();
+                    }
+                });
+                
+                // Правый стик (поворот)
+                this.setupJoystick(nosePad, (x, y) => {
+                    this.touchInput.nosePad.x = x;
+                    this.touchInput.nosePad.y = y;
+                    this.touchInput.nosePad.active = true;
+                    
+                    // Отключение автопилота при ручном вводе
+                    if (this.gameState.autopilot && Math.abs(x) > 0.1) {
+                        this.gameState.autopilot = false;
+                        this.updateHUD();
+                    }
+                }, true);
+                
+                // Кнопки
+                document.getElementById('brake-button').addEventListener('touchstart', () => {
+                    this.keys['SPACE'] = true;
+                    if (this.gameState.autopilot) {
+                        this.gameState.autopilot = false;
+                        this.updateHUD();
+                    }
+                });
+                
+                document.getElementById('brake-button').addEventListener('touchend', () => {
+                    this.keys['SPACE'] = false;
+                });
+                
+                document.getElementById('zoom-plus-button').addEventListener('touchstart', () => {
+                    this.adjustZoom(0.1);
+                });
+                
+                document.getElementById('zoom-minus-button').addEventListener('touchstart', () => {
+                    this.adjustZoom(-0.1);
+                });
+            }
+            
+            setupJoystick(element, callback, isNosePad = false) {
+                let active = false;
+                const rect = element.getBoundingClientRect();
+                const centerX = rect.left + rect.width / 2;
+                const centerY = rect.top + rect.height / 2;
+                const maxDist = rect.width / 2;
+                
+                const moveHandler = (e) => {
+                    if (!active) return;
+                    
+                    const touch = e.touches[0];
+                    const deltaX = touch.clientX - centerX;
+                    const deltaY = touch.clientY - centerY;
+                    const distance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
+                    const normalizedX = Math.max(-1, Math.min(1, deltaX / maxDist));
+                    const normalizedY = Math.max(-1, Math.min(1, deltaY / maxDist));
+                    
+                    callback(normalizedX, normalizedY);
+                    
+                    // Обновление визуальной позиции джойстика
+                    const limitedX = Math.min(maxDist, distance) * (deltaX / distance);
+                    const limitedY = Math.min(maxDist, distance) * (deltaY / distance);
+                    
+                    element.style.transform = `translate(${limitedX}px, ${limitedY}px)`;
+                };
+                
+                const startHandler = (e) => {
+                    active = true;
+                    if (isNosePad) {
+                        this.touchInput.nosePad.holdStart = Date.now();
+                    }
+                    moveHandler(e);
+                };
+                
+                const endHandler = () => {
+                    active = false;
+                    callback(0, 0);
+                    element.style.transform = 'translate(0, 0)';
+                    
+                    if (isNosePad) {
+                        this.touchInput.nosePad.active = false;
+                        const holdTime = Date.now() - this.touchInput.nosePad.holdStart;
+                        
+                        // Обработка жестов для Decoupled режима
+                        if (holdTime >= appConfig.input.touch.gestures.hold_to_enable_ms) {
+                            // Временный Decoupled
+                            this.gameState.coupled = false;
+                            this.updateHUD();
+                        }
+                        
+                        // Обработка двойного тапа
+                        if (this.touchInput.nosePad.doubleTapTimer) {
+                            clearTimeout(this.touchInput.nosePad.doubleTapTimer);
+                            // Фиксация Decoupled
+                            this.gameState.coupled = false;
+                            this.updateHUD();
+                            this.touchInput.nosePad.doubleTapTimer = null;
+                        } else {
+                            this.touchInput.nosePad.doubleTapTimer = setTimeout(() => {
+                                this.touchInput.nosePad.doubleTapTimer = null;
+                            }, appConfig.input.touch.gestures.double_tap_threshold_ms);
+                        }
+                    }
+                };
+                
+                element.addEventListener('touchstart', startHandler);
+                window.addEventListener('touchmove', moveHandler);
+                window.addEventListener('touchend', endHandler);
+            }
+            
+            setupTouchControls() {
+                if (!this.isMobile) return;
+                
+                const layout = appConfig.input.touch.layout;
+                const safeArea = appConfig.hud.safe_insets_px;
+                const width = window.innerWidth;
+                const height = window.innerHeight;
+                
+                // Позиционирование элементов управления
+                this.positionTouchControl('left-stick-area', layout.left_stick, width, height, safeArea);
+                this.positionTouchControl('nose-pad-area', layout.quick_nose_pad, width, height, safeArea);
+                this.positionTouchControl('brake-button', layout.brake_button, width, height, safeArea);
+                this.positionTouchControl('zoom-plus-button', layout.zoom_plus, width, height, safeArea);
+                this.positionTouchControl('zoom-minus-button', layout.zoom_minus, width, height, safeArea);
+            }
+            
+            positionTouchControl(elementId, layout, width, height, safeArea) {
+                const element = document.getElementById(elementId);
+                let x, y;
+                
+                switch (layout.anchor) {
+                    case 'bl': // bottom-left
+                        x = safeArea.left + (width - safeArea.left - safeArea.right) * layout.x_pct / 100;
+                        y = height - safeArea.bottom - (height - safeArea.top - safeArea.bottom) * layout.y_pct / 100;
+                        break;
+                    case 'br': // bottom-right
+                        x = width - safeArea.right - (width - safeArea.left - safeArea.right) * layout.x_pct / 100;
+                        y = height - safeArea.bottom - (height - safeArea.top - safeArea.bottom) * layout.y_pct / 100;
+                        break;
+                    case 'tr': // top-right
+                        x = width - safeArea.right - (width - safeArea.left - safeArea.right) * layout.x_pct / 100;
+                        y = safeArea.top + (height - safeArea.top - safeArea.bottom) * layout.y_pct / 100;
+                        break;
+                    default: // tl (top-left)
+                        x = safeArea.left + (width - safeArea.left - safeArea.right) * layout.x_pct / 100;
+                        y = safeArea.top + (height - safeArea.top - safeArea.bottom) * layout.y_pct / 100;
+                }
+                
+                element.style.left = `${x - element.offsetWidth / 2}px`;
+                element.style.top = `${y - element.offsetHeight / 2}px`;
+            }
+            
+            handleKeyInput(key, pressed) {
+                // Обработка специальных клавиш
+                switch (key) {
+                    case appConfig.input.keys.coupling_toggle:
+                        if (pressed) {
+                            this.gameState.coupled = !this.gameState.coupled;
+                            this.updateHUD();
+                        }
+                        break;
+                    case appConfig.input.keys.autopilot_random_toggle:
+                        if (pressed) {
+                            this.gameState.autopilot = !this.gameState.autopilot;
+                            this.updateHUD();
+                        }
+                        break;
+                    case appConfig.input.keys.zoom_in:
+                        if (pressed) this.adjustZoom(0.1);
+                        break;
+                    case appConfig.input.keys.zoom_out:
+                        if (pressed) this.adjustZoom(-0.1);
+                        break;
+                    case appConfig.input.keys.collision_mode_toggle:
+                        if (pressed) {
+                            this.gameState.collisionMode = this.gameState.collisionMode === 'AABB' ? 'Alpha' : 'AABB';
+                            this.updateHUD();
+                        }
+                        break;
+                    case appConfig.input.keys.collision_overlay_toggle:
+                        if (pressed) {
+                            this.gameState.collisionOverlay = !this.gameState.collisionOverlay;
+                        }
+                        break;
+                    case appConfig.input.keys.screenshot_export:
+                        if (pressed) this.takeScreenshot();
+                        break;
+                }
+            }
+            
+            isUserInputKey(key) {
+                const userInputKeys = [
+                    appConfig.input.keys.thrust_forward,
+                    appConfig.input.keys.thrust_backward,
+                    appConfig.input.keys.strafe_left,
+                    appConfig.input.keys.strafe_right,
+                    appConfig.input.keys.turn_left,
+                    appConfig.input.keys.turn_right,
+                    appConfig.input.keys.stop
+                ];
+                return userInputKeys.includes(key);
+            }
+            
+            adjustZoom(delta) {
+                const zoomRange = appConfig.render.zoom.max - appConfig.render.zoom.min;
+                this.gameState.zoom = Math.max(
+                    appConfig.render.zoom.min,
+                    Math.min(
+                        appConfig.render.zoom.max,
+                        this.gameState.zoom + delta * zoomRange * 0.1
+                    )
+                );
+                this.updateHUD();
+            }
+            
+            takeScreenshot() {
+                const link = document.createElement('a');
+                link.download = `u2-flighttest-${Date.now()}.png`;
+                link.href = this.canvas.toDataURL();
+                link.click();
+            }
+            
+            initAsteroids() {
+                // Генерация астероидов на основе конфигурации
+                const bounds = appConfig.world.bounds_rect_m;
+                const coverage = appConfig.asteroids.coverage_fraction;
+                const totalArea = bounds.w * bounds.h;
+                const targetAsteroidArea = totalArea * coverage;
+                
+                // Простая реализация - генерируем фиксированное количество астероидов
+                const numAsteroids = 50;
+                
+                for (let i = 0; i < numAsteroids; i++) {
+                    const radius = this.getRandomAsteroidRadius();
+                    const area = Math.PI * radius * radius;
+                    
+                    // Генерация позиции с учетом margin
+                    const margin = appConfig.asteroids.margin_m;
+                    const x = Math.random() * (bounds.w - 2 * margin) + margin;
+                    const y = Math.random() * (bounds.h - 2 * margin) + margin;
+                    
+                    // Проверка на безопасное расстояние от точки спавна
+                    const spawnDistance = Math.sqrt(x*x + y*y);
+                    if (spawnDistance < appConfig.debug.spawn.safe_radius_m) continue;
+                    
+                    this.asteroids.push({
+                        x, y,
+                        radius,
+                        mass: (4/3) * Math.PI * Math.pow(radius, 3) * appConfig.asteroids.density_kg_m3
+                    });
+                }
+            }
+            
+            getRandomAsteroidRadius() {
+                const min = appConfig.asteroids.radius_m.min;
+                const max = appConfig.asteroids.radius_m.max;
+                const distribution = appConfig.asteroids.distribution.type;
+                
+                if (distribution === "lognormal") {
+                    // Упрощенная генерация логнормального распределения
+                    const mu = appConfig.asteroids.distribution.params.mu;
+                    const sigma = appConfig.asteroids.distribution.params.sigma;
+                    
+                    // Бокс-Мюллер преобразование
+                    const u1 = Math.random();
+                    const u2 = Math.random();
+                    const z0 = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+                    
+                    let value = Math.exp(mu + sigma * z0);
+                    
+                    // Масштабирование к диапазону [min, max]
+                    value = min + (value % (max - min));
+                    return value;
+                } else {
+                    // uniform distribution
+                    return min + Math.random() * (max - min);
+                }
+            }
+            
+            gameLoop(timestamp) {
+                if (!this.lastTime) this.lastTime = timestamp;
+                const deltaTime = (timestamp - this.lastTime) / 1000;
+                this.lastTime = timestamp;
+                
+                this.accumulator += deltaTime;
+                
+                // Фиксированный шаг симуляции
+                while (this.accumulator >= this.dt) {
+                    this.update(this.dt);
+                    this.accumulator -= this.dt;
+                }
+                
+                this.render();
+                requestAnimationFrame(this.gameLoop.bind(this));
+            }
+            
+            update(dt) {
+                if (!this.gameState.running || this.gameState.gameOver) return;
+                
+                // Обновление грации спавна
+                if (this.gameState.spawnGrace > 0) {
+                    this.gameState.spawnGrace -= dt;
+                }
+                
+                // Управление от автопилота
+                if (this.gameState.autopilot) {
+                    this.updateAutopilot(dt);
+                } else {
+                    // Управление от пользователя
+                    this.updateUserInput();
+                }
+                
+                // Физика корабля
+                this.updateShipPhysics(dt);
+                
+                // Проверка коллизий
+                this.checkCollisions();
+                
+                // Обновление телеметрии
+                this.updateTelemetry();
+            }
+            
+            updateAutopilot(dt) {
+                // Простая реализация автопилота Random
+                // В реальной реализации здесь была бы более сложная логика
+                
+                // Случайное изменение управления с некоторой периодичностью
+                if (Math.random() < 0.02) {
+                    this.shipState.thrust = Math.random() < 0.5 ? 
+                        this.getRandomThrust() : 0;
+                    
+                    this.shipState.strafe = Math.random() < appConfig.autopilot.strafe_probability ? 
+                        (Math.random() - 0.5) * 2 : 0;
+                    
+                    this.shipState.turn = Math.random() < 0.3 ? 
+                        (Math.random() - 0.5) * 2 * appConfig.autopilot.turn_rate_scale : 0;
+                }
+            }
+            
+            getRandomThrust() {
+                const range = appConfig.autopilot.thrust_range;
+                return range[0] + Math.random() * (range[1] - range[0]);
+            }
+            
+            updateUserInput() {
+                // Сброс управляющих воздействий
+                this.shipState.thrust = 0;
+                this.shipState.strafe = 0;
+                this.shipState.turn = 0;
+                
+                // Обработка клавиатуры
+                if (this.keys[appConfig.input.keys.thrust_forward]) {
+                    this.shipState.thrust = 1;
+                }
+                if (this.keys[appConfig.input.keys.thrust_backward]) {
+                    this.shipState.thrust = -1;
+                }
+                if (this.keys[appConfig.input.keys.strafe_left]) {
+                    this.shipState.strafe = -1;
+                }
+                if (this.keys[appConfig.input.keys.strafe_right]) {
+                    this.shipState.strafe = 1;
+                }
+                if (this.keys[appConfig.input.keys.turn_left]) {
+                    this.shipState.turn = -1;
+                }
+                if (this.keys[appConfig.input.keys.turn_right]) {
+                    this.shipState.turn = 1;
+                }
+                
+                // Обработка торможения
+                if (this.keys['SPACE']) {
+                    this.applyBrakeAssist();
+                }
+                
+                // Обработка сенсорного ввода
+                if (this.isMobile) {
+                    // Левый стик - тяга/стрейф
+                    this.shipState.thrust = -this.touchInput.leftStick.y; // Ось Y инвертирована
+                    this.shipState.strafe = this.touchInput.leftStick.x;
+                    
+                    // Правый стик - поворот
+                    if (this.touchInput.nosePad.active) {
+                        this.shipState.turn = this.touchInput.nosePad.x;
+                    }
+                    
+                    // Автоторможение при отпускании стика (если включено)
+                    if (appConfig.input.touch.brake_on_release && 
+                        Math.abs(this.touchInput.leftStick.x) < 0.1 && 
+                        Math.abs(this.touchInput.leftStick.y) < 0.1) {
+                        this.applyBrakeAssist();
+                    }
+                }
+                
+                // Coupled режим - выравнивание носа к вектору скорости
+                if (this.gameState.coupled) {
+                    this.applyCoupledAssist();
+                }
+            }
+            
+            applyBrakeAssist() {
+                const speed = Math.sqrt(this.shipState.vx * this.shipState.vx + this.shipState.vy * this.shipState.vy);
+                
+                if (speed > shipConfig.assist.autobrake_eps_mps) {
+                    // Направление торможения противоположно вектору скорости
+                    const directionX = -this.shipState.vx / speed;
+                    const directionY = -this.shipState.vy / speed;
+                    
+                    // Применяем максимальное тормозное ускорение с учетом SR-клампов и g-лимитов
+                    const maxBrakeAccel = this.calculateMaxAcceleration(directionX, directionY);
+                    
+                    this.shipState.ax += directionX * maxBrakeAccel;
+                    this.shipState.ay += directionY * maxBrakeAccel;
+                }
+            }
+            
+            applyCoupledAssist() {
+                const speed = Math.sqrt(this.shipState.vx * this.shipState.vx + this.shipState.vy * this.shipState.vy);
+                
+                if (speed > 0.1) { // Минимальная скорость для выравнивания
+                    // Целевой угол - направление вектора скорости
+                    const targetTheta = Math.atan2(this.shipState.vy, this.shipState.vx);
+                    
+                    // Разница углов (нормализованная)
+                    let angleDiff = targetTheta - this.shipState.theta;
+                    
+                    // Нормализация к [-PI, PI]
+                    while (angleDiff > Math.PI) angleDiff -= 2 * Math.PI;
+                    while (angleDiff < -Math.PI) angleDiff += 2 * Math.PI;
+                    
+                    // Мертвая зона
+                    const deadzoneRad = shipConfig.assist.coupled_deadzone_deg * Math.PI / 180;
+                    if (Math.abs(angleDiff) < deadzoneRad) return;
+                    
+                    // Применение выравнивания с учетом ограничений
+                    const alignGain = shipConfig.assist.coupled_align_gain;
+                    const maxOmega = Math.min(
+                        shipConfig.assist.coupled_omega_cap_radps,
+                        shipConfig.rcs.turn_omega_max_radps
+                    );
+                    const maxAlpha = Math.min(
+                        shipConfig.assist.coupled_alpha_cap_radps2,
+                        shipConfig.rcs.turn_alpha_max_radps2
+                    );
+                    
+                    // Желаемая угловая скорость
+                    const desiredOmega = angleDiff * alignGain;
+                    const clampedOmega = Math.max(-maxOmega, Math.min(maxOmega, desiredOmega));
+                    
+                    // Применение углового ускорения
+                    const omegaDiff = clampedOmega - this.shipState.omega;
+                    const alpha = Math.max(-maxAlpha, Math.min(maxAlpha, omegaDiff / this.dt));
+                    
+                    this.shipState.omega += alpha * this.dt;
+                }
+            }
+            
+            updateShipPhysics(dt) {
+                // Расчет ускорения от двигателей
+                const thrustAccel = (this.shipState.thrust * shipConfig.propulsion.main_engine_thrust_max_N) / shipConfig.mass.mass_kg;
+                const strafeAccel = (this.shipState.strafe * shipConfig.rcs.strafe_thrust_N) / shipConfig.mass.mass_kg;
+                
+                // Преобразование в мировые координаты
+                const cosTheta = Math.cos(this.shipState.theta);
+                const sinTheta = Math.sin(this.shipState.theta);
+                
+                const thrustWorldX = thrustAccel * cosTheta;
+                const thrustWorldY = thrustAccel * sinTheta;
+                
+                const strafeWorldX = -strafeAccel * sinTheta;
+                const strafeWorldY = strafeAccel * cosTheta;
+                
+                // Суммарное ускорение от двигателей
+                const engineAx = thrustWorldX + strafeWorldX;
+                const engineAy = thrustWorldY + strafeWorldY;
+                
+                // Угловое ускорение
+                const turnAlpha = this.shipState.turn * shipConfig.rcs.turn_alpha_max_radps2;
+                const desiredOmega = this.shipState.turn * shipConfig.rcs.turn_omega_max_radps;
+                
+                // Плавное изменение угловой скорости
+                const omegaDiff = desiredOmega - this.shipState.omega;
+                const alpha = Math.max(-shipConfig.rcs.turn_alpha_max_radps2, 
+                                      Math.min(shipConfig.rcs.turn_alpha_max_radps2, omegaDiff / shipConfig.g_limits.behavior.smoothing_tau_s));
+                
+                this.shipState.omega += alpha * dt;
+                
+                // Релятивистские эффекты (SR-клампы)
+                const speed = Math.sqrt(this.shipState.vx * this.shipState.vx + this.shipState.vy * this.shipState.vy);
+                const c = appConfig.world.c_prime;
+                const beta = speed / c;
+                const gamma = 1 / Math.sqrt(1 - beta * beta);
+                
+                // Ограничение ускорения вдоль и поперек вектора скорости
+                if (speed > 0) {
+                    const dirX = this.shipState.vx / speed;
+                    const dirY = this.shipState.vy / speed;
+                    
+                    // Разложение ускорения на продольную и поперечную компоненты
+                    const aParallel = engineAx * dirX + engineAy * dirY;
+                    const aPerpX = engineAx - aParallel * dirX;
+                    const aPerpY = engineAy - aParallel * dirY;
+                    const aPerp = Math.sqrt(aPerpX * aPerpX + aPerpY * aPerpY);
+                    
+                    // Применение SR-клампов
+                    const aParallelClamped = aParallel / Math.pow(gamma, 3);
+                    const aPerpClamped = aPerp / gamma;
+                    
+                    // Восстановление вектора ускорения
+                    if (aPerp > 0) {
+                        const scale = aPerpClamped / aPerp;
+                        this.shipState.ax = aParallelClamped * dirX + aPerpX * scale;
+                        this.shipState.ay = aParallelClamped * dirY + aPerpY * scale;
+                    } else {
+                        this.shipState.ax = aParallelClamped * dirX;
+                        this.shipState.ay = aParallelClamped * dirY;
+                    }
+                } else {
+                    this.shipState.ax = engineAx;
+                    this.shipState.ay = engineAy;
+                }
+                
+                // Применение g-лимитов
+                this.applyGLimits();
+                
+                // Интегрирование скорости
+                this.shipState.vx += this.shipState.ax * dt;
+                this.shipState.vy += this.shipState.ay * dt;
+                
+                // Интегрирование позиции
+                this.shipState.x += this.shipState.vx * dt;
+                this.shipState.y += this.shipState.vy * dt;
+                
+                // Интегрирование угла
+                this.shipState.theta += this.shipState.omega * dt;
+                
+                // Нормализация угла к [-PI, PI]
+                while (this.shipState.theta > Math.PI) this.shipState.theta -= 2 * Math.PI;
+                while (this.shipState.theta < -Math.PI) this.shipState.theta += 2 * Math.PI;
+                
+                // Wrap-around (торидальный мир)
+                const bounds = appConfig.world.bounds_rect_m;
+                if (appConfig.world.wrap) {
+                    if (this.shipState.x < -bounds.w/2) this.shipState.x += bounds.w;
+                    if (this.shipState.x > bounds.w/2) this.shipState.x -= bounds.w;
+                    if (this.shipState.y < -bounds.h/2) this.shipState.y += bounds.h;
+                    if (this.shipState.y > bounds.h/2) this.shipState.y -= bounds.h;
+                }
+            }
+            
+            applyGLimits() {
+                const totalAccel = Math.sqrt(this.shipState.ax * this.shipState.ax + this.shipState.ay * this.shipState.ay);
+                const g0 = 9.80665; // стандартная гравитация
+                const currentG = totalAccel / g0;
+                
+                // Определение допустимого ускорения на основе g-лимитов
+                let maxG = shipConfig.g_limits.longitudinal.sustained_g;
+                
+                // В реальной реализации здесь была бы более сложная логика
+                // с учетом burst режимов и времени восстановления
+                
+                if (currentG > maxG) {
+                    const scale = maxG / currentG;
+                    this.shipState.ax *= scale;
+                    this.shipState.ay *= scale;
+                }
+            }
+            
+            calculateMaxAcceleration(dirX, dirY) {
+                // Расчет максимального ускорения в заданном направлении
+                // с учетом SR-клампов и g-лимитов
+                const speed = Math.sqrt(this.shipState.vx * this.shipState.vx + this.shipState.vy * this.shipState.vy);
+                const c = appConfig.world.c_prime;
+                const beta = speed / c;
+                const gamma = 1 / Math.sqrt(1 - beta * beta);
+                
+                // Проекция направления на вектор скорости
+                const speedDirX = speed > 0 ? this.shipState.vx / speed : 0;
+                const speedDirY = speed > 0 ? this.shipState.vy / speed : 0;
+                
+                const dotProduct = dirX * speedDirX + dirY * speedDirY;
+                const isParallel = Math.abs(dotProduct) > 0.95; // Порог параллельности
+                
+                // SR-клампы
+                const srLimit = isParallel ? 
+                    shipConfig.propulsion.main_engine_thrust_max_N / (shipConfig.mass.mass_kg * Math.pow(gamma, 3)) :
+                    shipConfig.propulsion.main_engine_thrust_max_N / (shipConfig.mass.mass_kg * gamma);
+                
+                // g-лимиты
+                const gLimit = shipConfig.g_limits.longitudinal.sustained_g * 9.80665;
+                
+                return Math.min(srLimit, gLimit);
+            }
+            
+            checkCollisions() {
+                if (this.gameState.spawnGrace > 0) return;
+                
+                const shipBBox = this.getShipBoundingBox();
+                
+                for (const asteroid of this.asteroids) {
+                    if (this.checkCollisionWithAsteroid(shipBBox, asteroid)) {
+                        this.gameOver();
+                        break;
+                    }
+                }
+            }
+            
+            getShipBoundingBox() {
+                // Расчет AABB корабля в мировых координатах
+                const cosTheta = Math.cos(this.shipState.theta);
+                const sinTheta = Math.sin(this.shipState.theta);
+                
+                const halfWidth = shipConfig.geometry.bbox_m.width / 2;
+                const halfLength = shipConfig.geometry.bbox_m.length / 2;
+                
+                // Углы AABB в локальных координатах корабля
+                const cornersLocal = [
+                    { x: halfLength, y: halfWidth },
+                    { x: halfLength, y: -halfWidth },
+                    { x: -halfLength, y: -halfWidth },
+                    { x: -halfLength, y: halfWidth }
+                ];
+                
+                // Преобразование в мировые координаты
+                const cornersWorld = cornersLocal.map(corner => ({
+                    x: this.shipState.x + corner.x * cosTheta - corner.y * sinTheta,
+                    y: this.shipState.y + corner.x * sinTheta + corner.y * cosTheta
+                }));
+                
+                // Расчет AABB в мировых координатах
+                let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+                
+                for (const corner of cornersWorld) {
+                    minX = Math.min(minX, corner.x);
+                    maxX = Math.max(maxX, corner.x);
+                    minY = Math.min(minY, corner.y);
+                    maxY = Math.max(maxY, corner.y);
+                }
+                
+                return { minX, maxX, minY, maxY, corners: cornersWorld };
+            }
+            
+            checkCollisionWithAsteroid(shipBBox, asteroid) {
+                if (this.gameState.collisionMode === 'AABB') {
+                    // Проверка AABB коллизий
+                    return this.checkAABBCollision(shipBBox, asteroid);
+                } else {
+                    // Проверка Alpha коллизий (упрощенная реализация)
+                    return this.checkAlphaCollision(shipBBox, asteroid);
+                }
+            }
+            
+            checkAABBCollision(shipBBox, asteroid) {
+                // Простая проверка пересечения AABB корабля и окружности астероида
+                const closestX = Math.max(shipBBox.minX, Math.min(asteroid.x, shipBBox.maxX));
+                const closestY = Math.max(shipBBox.minY, Math.min(asteroid.y, shipBBox.maxY));
+                
+                const distanceX = asteroid.x - closestX;
+                const distanceY = asteroid.y - closestY;
+                const distanceSquared = distanceX * distanceX + distanceY * distanceY;
+                
+                return distanceSquared < (asteroid.radius * asteroid.radius);
+            }
+            
+            checkAlphaCollision(shipBBox, asteroid) {
+                // Упрощенная реализация Alpha коллизий
+                // В реальной реализации здесь использовалась бы альфа-маска спрайта
+                
+                // Проверка расстояния от центра астероида до корабля
+                const distance = Math.sqrt(
+                    Math.pow(asteroid.x - this.shipState.x, 2) + 
+                    Math.pow(asteroid.y - this.shipState.y, 2)
+                );
+                
+                return distance < (asteroid.radius + shipConfig.geometry.hull_radius_m);
+            }
+            
+            gameOver() {
+                this.gameState.gameOver = true;
+                document.getElementById('game-over-modal').classList.remove('hidden');
+            }
+            
+            restartGame() {
+                // Сброс состояния игры
+                this.gameState = {
+                    running: true,
+                    gameOver: false,
+                    autopilot: appConfig.autopilot.random_enabled_default,
+                    coupled: shipConfig.assist.coupled_enabled,
+                    collisionMode: appConfig.collision.mode_default,
+                    collisionOverlay: appConfig.collision.overlay_visible_default,
+                    zoom: appConfig.render.zoom.start,
+                    spawnGrace: shipConfig.spawn.spawn_grace_seconds
+                };
+                
+                // Сброс состояния корабля
+                this.shipState = {
+                    x: 0, y: 0,
+                    vx: 0, vy: 0,
+                    theta: 0,
+                    omega: 0,
+                    ax: 0, ay: 0,
+                    thrust: 0, strafe: 0, turn: 0
+                };
+                
+                document.getElementById('game-over-modal').classList.add('hidden');
+                this.updateHUD();
+            }
+            
+            updateTelemetry() {
+                const speed = Math.sqrt(this.shipState.vx * this.shipState.vx + this.shipState.vy * this.shipState.vy);
+                const c = appConfig.world.c_prime;
+                const beta = speed / c;
+                const gamma = beta > 0.999 ? 22.366 : 1 / Math.sqrt(1 - beta * beta); // Кламп при приближении к c
+                
+                const accel = Math.sqrt(this.shipState.ax * this.shipState.ax + this.shipState.ay * this.shipState.ay);
+                const gForce = accel / 9.80665;
+                
+                // Обновление HUD
+                document.getElementById('telemetry-display').textContent = 
+                    `Скорость: ${speed.toFixed(1)} м/с | γ: ${gamma.toFixed(2)} | Ускорение: ${gForce.toFixed(1)} g | Зум: ${this.gameState.zoom.toFixed(1)}x`;
+                
+                document.getElementById('position-display').textContent = 
+                    `Позиция: (${this.shipState.x.toFixed(1)}, ${this.shipState.y.toFixed(1)}) | Угол: ${this.shipState.theta.toFixed(2)} рад`;
+            }
+            
+            updateHUD() {
+                // Обновление индикаторов статуса
+                const coupledStatus = document.getElementById('coupled-status');
+                const autopilotStatus = document.getElementById('autopilot-status');
+                const collisionStatus = document.getElementById('collision-status');
+                
+                coupledStatus.textContent = this.gameState.coupled ? 'COUPLED' : 'DECOUPLED';
+                coupledStatus.className = `status ${this.gameState.coupled ? 'status-coupled' : 'status-decoupled'}`;
+                
+                if (this.gameState.autopilot) {
+                    autopilotStatus.classList.remove('hidden');
+                } else {
+                    autopilotStatus.classList.add('hidden');
+                }
+                
+                collisionStatus.textContent = this.gameState.collisionMode;
+                if (this.gameState.collisionOverlay) {
+                    collisionStatus.classList.remove('hidden');
+                } else {
+                    collisionStatus.classList.add('hidden');
+                }
+            }
+            
+            render() {
+                // Очистка canvas
+                this.ctx.fillStyle = `rgb(${appConfig.render.background.color_rgba[0]}, 
+                                         ${appConfig.render.background.color_rgba[1]}, 
+                                         ${appConfig.render.background.color_rgba[2]})`;
+                this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+                
+                // Применение зума и смещения камеры
+                this.ctx.save();
+                this.ctx.translate(this.canvas.width / 2, this.canvas.height / 2);
+                this.ctx.scale(this.gameState.zoom, this.gameState.zoom);
+                this.ctx.translate(-this.shipState.x, -this.shipState.y);
+                
+                // Отрисовка сетки (если включена)
+                if (appConfig.render.grid.enabled) {
+                    this.renderGrid();
+                }
+                
+                // Отрисовка астероидов
+                this.renderAsteroids();
+                
+                // Отрисовка корабля
+                this.renderShip();
+                
+                // Отрисовка оверлея коллизий (если включен)
+                if (this.gameState.collisionOverlay) {
+                    this.renderCollisionOverlay();
+                }
+                
+                this.ctx.restore();
+            }
+            
+            renderGrid() {
+                const cellSize = appConfig.render.grid.meters_per_cell;
+                const bounds = appConfig.world.bounds_rect_m;
+                const gridColor = `rgba(${appConfig.debug.overlay.colors.grid[0]}, 
+                                       ${appConfig.debug.overlay.colors.grid[1]}, 
+                                       ${appConfig.debug.overlay.colors.grid[2]}, 
+                                       ${appConfig.debug.overlay.colors.grid[3] / 255})`;
+                
+                this.ctx.strokeStyle = gridColor;
+                this.ctx.lineWidth = 1 / this.gameState.zoom;
+                
+                // Вертикальные линии
+                for (let x = -bounds.w/2; x <= bounds.w/2; x += cellSize) {
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(x, -bounds.h/2);
+                    this.ctx.lineTo(x, bounds.h/2);
+                    this.ctx.stroke();
+                }
+                
+                // Горизонтальные линии
+                for (let y = -bounds.h/2; y <= bounds.h/2; y += cellSize) {
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(-bounds.w/2, y);
+                    this.ctx.lineTo(bounds.w/2, y);
+                    this.ctx.stroke();
+                }
+            }
+            
+            renderAsteroids() {
+                this.ctx.fillStyle = '#8B4513'; // Коричневый цвет для астероидов
+                
+                for (const asteroid of this.asteroids) {
+                    this.ctx.beginPath();
+                    this.ctx.arc(asteroid.x, asteroid.y, asteroid.radius, 0, Math.PI * 2);
+                    this.ctx.fill();
+                    
+                    // Добавление текстуры для реализма
+                    this.ctx.strokeStyle = '#5D4037';
+                    this.ctx.lineWidth = 2;
+                    this.ctx.stroke();
+                }
+            }
+            
+            renderShip() {
+                this.ctx.save();
+                this.ctx.translate(this.shipState.x, this.shipState.y);
+                this.ctx.rotate(this.shipState.theta);
+                
+                // Простая отрисовка корабля (вместо спрайта)
+                this.ctx.fillStyle = '#3B82F6'; // Синий цвет для корабля
+                
+                // Основа корабля
+                this.ctx.beginPath();
+                this.ctx.moveTo(shipConfig.geometry.bbox_m.length / 2, 0);
+                this.ctx.lineTo(-shipConfig.geometry.bbox_m.length / 2, shipConfig.geometry.bbox_m.width / 2);
+                this.ctx.lineTo(-shipConfig.geometry.bbox_m.length / 2, -shipConfig.geometry.bbox_m.width / 2);
+                this.ctx.closePath();
+                this.ctx.fill();
+                
+                // Двигатели (визуальный эффект при ускорении)
+                if (this.shipState.thrust > 0) {
+                    this.ctx.fillStyle = '#FF5722';
+                    this.ctx.beginPath();
+                    this.ctx.moveTo(-shipConfig.geometry.bbox_m.length / 2, shipConfig.geometry.bbox_m.width / 4);
+                    this.ctx.lineTo(-shipConfig.geometry.bbox_m.length / 2 - 5 * this.shipState.thrust, 0);
+                    this.ctx.lineTo(-shipConfig.geometry.bbox_m.length / 2, -shipConfig.geometry.bbox_m.width / 4);
+                    this.ctx.closePath();
+                    this.ctx.fill();
+                }
+                
+                this.ctx.restore();
+            }
+            
+            renderCollisionOverlay() {
+                // Отрисовка AABB корабля
+                const shipBBox = this.getShipBoundingBox();
+                
+                this.ctx.strokeStyle = this.gameState.collisionMode === 'AABB' ? '#FF0000' : '#00FF00';
+                this.ctx.lineWidth = 2 / this.gameState.zoom;
+                
+                this.ctx.beginPath();
+                this.ctx.moveTo(shipBBox.corners[0].x, shipBBox.corners[0].y);
+                for (let i = 1; i < shipBBox.corners.length; i++) {
+                    this.ctx.lineTo(shipBBox.corners[i].x, shipBBox.corners[i].y);
+                }
+                this.ctx.closePath();
+                this.ctx.stroke();
+                
+                // Отрисовка hull radius для Alpha режима
+                if (this.gameState.collisionMode === 'Alpha') {
+                    this.ctx.strokeStyle = '#00FF00';
+                    this.ctx.beginPath();
+                    this.ctx.arc(this.shipState.x, this.shipState.y, shipConfig.geometry.hull_radius_m, 0, Math.PI * 2);
+                    this.ctx.stroke();
+                }
+                
+                // Отрисовка радиусов астероидов
+                this.ctx.strokeStyle = '#FF0000';
+                for (const asteroid of this.asteroids) {
+                    this.ctx.beginPath();
+                    this.ctx.arc(asteroid.x, asteroid.y, asteroid.radius, 0, Math.PI * 2);
+                    this.ctx.stroke();
+                }
+            }
+        }
+
+        // Инициализация приложения после загрузки страницы
+        window.addEventListener('load', () => {
+            new FlightTestApp();
+        });
+    </script>
+</body>
+</html>
