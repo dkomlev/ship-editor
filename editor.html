@@ -1,0 +1,807 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>U2 ShipConfig Editor</title>
+    <style>
+        :root {
+            color-scheme: dark;
+            --bg: #10121a;
+            --bg-panel: #171a24;
+            --bg-panel-alt: #1f2331;
+            --border: #2b3044;
+            --border-accent: #3e88ff;
+            --text: #e4e9ff;
+            --text-dim: #b7bad0;
+            --accent: #3e88ff;
+            --accent-strong: #5da8ff;
+            --danger: #ff5f74;
+            font-family: "Segoe UI", sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            background: radial-gradient(circle at top, #192036, #0c0f18);
+            color: var(--text);
+            min-height: 100vh;
+            display: flex;
+        }
+
+        .app {
+            display: flex;
+            width: 100%;
+            gap: 16px;
+            padding: 16px;
+        }
+
+        .panel {
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.35);
+        }
+
+        .panel.sidebar {
+            width: 420px;
+            max-height: calc(100vh - 32px);
+        }
+
+        .panel.main {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .sidebar-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .sidebar-header h1 {
+            font-size: 1.1rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            margin: 0;
+            color: var(--accent-strong);
+        }
+
+        .status-pill {
+            font-size: 0.75rem;
+            padding: 4px 8px;
+            border-radius: 999px;
+            border: 1px solid var(--border);
+            color: var(--text-dim);
+        }
+
+        .toolbar {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .toolbar button {
+            border: 1px solid var(--border);
+            background: var(--bg-panel-alt);
+            color: var(--text);
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s, transform 0.2s;
+        }
+
+        .toolbar button:hover {
+            border-color: var(--accent);
+            background: #29304c;
+            transform: translateY(-1px);
+        }
+
+        form {
+            flex: 1;
+            overflow-y: auto;
+            padding-right: 8px;
+        }
+
+        .section {
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            margin-bottom: 14px;
+            background: rgba(34, 39, 58, 0.8);
+            overflow: hidden;
+        }
+
+        .section h2 {
+            font-size: 0.9rem;
+            margin: 0;
+            padding: 10px 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            background: rgba(28, 32, 46, 0.9);
+            border-bottom: 1px solid var(--border);
+        }
+
+        .section-body {
+            padding: 12px;
+            display: grid;
+            gap: 12px;
+        }
+
+        .field {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            position: relative;
+        }
+
+        .field.inline {
+            flex-direction: row;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .field label {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-dim);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+        }
+
+        .field input,
+        .field select,
+        .field textarea {
+            padding: 8px 10px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: rgba(13, 16, 24, 0.75);
+            color: var(--text);
+            font-size: 0.9rem;
+        }
+
+        .field textarea {
+            resize: vertical;
+            min-height: 70px;
+        }
+
+        input:focus,
+        select:focus,
+        textarea:focus {
+            outline: none;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 1px rgba(62, 136, 255, 0.3);
+        }
+
+        .field input[disabled] {
+            opacity: 0.6;
+        }
+
+        .checkbox-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            justify-content: flex-start;
+            font-size: 0.85rem;
+        }
+
+        .help-button {
+            border: 1px solid var(--border);
+            background: rgba(255, 255, 255, 0.08);
+            color: var(--text);
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            font-size: 0.65rem;
+            line-height: 1;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s, transform 0.2s;
+        }
+
+        .help-button:hover {
+            border-color: var(--accent);
+            background: rgba(62, 136, 255, 0.2);
+            transform: translateY(-1px);
+        }
+
+        .help-button:focus-visible {
+            outline: 2px solid var(--accent);
+            outline-offset: 2px;
+        }
+
+        .field-help {
+            display: none;
+            margin-top: 6px;
+            padding: 10px 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(62, 136, 255, 0.35);
+            background: rgba(20, 28, 44, 0.9);
+            font-size: 0.75rem;
+            line-height: 1.4;
+            color: var(--text);
+        }
+
+        .field.help-open .field-help {
+            display: block;
+        }
+
+        .field-actions {
+            margin-top: 6px;
+            display: flex;
+            gap: 6px;
+        }
+
+        .field-actions button {
+            border: 1px solid var(--border);
+            background: rgba(17, 21, 32, 0.85);
+            color: var(--text);
+            border-radius: 6px;
+            padding: 4px 8px;
+            font-size: 0.7rem;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s, transform 0.2s;
+        }
+
+        .field-actions button:hover {
+            border-color: var(--accent);
+            background: rgba(41, 48, 76, 0.95);
+            transform: translateY(-1px);
+        }
+
+        .subgrid {
+            display: grid;
+            gap: 10px;
+        }
+
+        .subgrid.two {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .subgrid.three {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .subgrid.four {
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 8px;
+            border-radius: 999px;
+            background: rgba(62, 136, 255, 0.12);
+            border: 1px solid rgba(62, 136, 255, 0.3);
+            color: var(--accent-strong);
+            font-size: 0.75rem;
+            margin-right: 6px;
+            margin-bottom: 6px;
+        }
+
+        .badge button {
+            background: none;
+            border: none;
+            color: var(--accent-strong);
+            cursor: pointer;
+            padding: 0;
+            font-size: 0.85rem;
+        }
+
+        .invalid {
+            border-color: var(--danger) !important;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+            gap: 16px;
+            height: 100%;
+        }
+
+        .preview-card,
+        .json-card {
+            background: rgba(23, 27, 40, 0.85);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+        }
+
+        .preview-header,
+        .json-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .preview-header h2,
+        .json-header h2 {
+            margin: 0;
+            font-size: 0.95rem;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--text-dim);
+        }
+
+        .preview-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .preview-stage {
+            flex: 1;
+            background: #0a0c12;
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            overflow: hidden;
+        }
+
+        .sprite-load-button {
+            position: absolute;
+            top: 12px;
+            right: 12px;
+            padding: 6px 10px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: rgba(23, 27, 40, 0.9);
+            color: var(--text);
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s, transform 0.2s;
+        }
+
+        .sprite-load-button:hover {
+            border-color: var(--accent);
+            background: rgba(41, 48, 76, 0.95);
+            transform: translateY(-1px);
+        }
+
+        canvas#spriteCanvas {
+            max-width: 100%;
+            max-height: 100%;
+            image-rendering: pixelated;
+        }
+
+        .json-viewer {
+            flex: 1;
+            background: #080a11;
+            border-radius: 10px;
+            border: 1px solid var(--border);
+            padding: 0;
+            overflow: hidden;
+        }
+
+        .json-viewer textarea {
+            width: 100%;
+            height: 100%;
+            border: none;
+            background: transparent;
+            color: var(--text);
+            font-family: "JetBrains Mono", "Fira Code", monospace;
+            font-size: 0.82rem;
+            line-height: 1.5;
+            padding: 16px;
+            resize: none;
+        }
+
+        .json-viewer textarea:focus {
+            outline: none;
+        }
+
+        .summary {
+            margin-top: 12px;
+            font-size: 0.8rem;
+            color: var(--text-dim);
+        }
+
+        .summary strong {
+            color: var(--accent-strong);
+        }
+
+        .summary .hint {
+            margin-top: 6px;
+            font-size: 0.75rem;
+            color: var(--text-dim);
+        }
+
+        .status-bar {
+            margin-top: 12px;
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            min-height: 1.2em;
+        }
+
+        .status-bar span {
+            color: var(--accent-strong);
+        }
+
+        .messages {
+            margin-top: 12px;
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .message {
+            padding: 6px 10px;
+            border-radius: 8px;
+            font-size: 0.78rem;
+        }
+
+        .message.error {
+            background: rgba(255, 95, 116, 0.12);
+            border: 1px solid rgba(255, 95, 116, 0.4);
+            color: #ff9aa8;
+        }
+
+        .message.warn {
+            background: rgba(255, 193, 71, 0.12);
+            border: 1px solid rgba(255, 193, 71, 0.4);
+            color: #ffd992;
+        }
+
+        @media (max-width: 1280px) {
+            .app {
+                flex-direction: column;
+            }
+
+            .panel.sidebar {
+                width: auto;
+                max-height: unset;
+            }
+
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="app">
+        <aside class="panel sidebar">
+            <div class="sidebar-header">
+                <h1>U2 ShipConfig Editor</h1>
+                <div class="status-pill" id="loadStatus">offline</div>
+            </div>
+            <div class="toolbar">
+                <button type="button" id="btnLoadAppConfig">Из app.json</button>
+                <button type="button" id="btnOpenFile">Открыть JSON…</button>
+                <button type="button" id="btnSave">Сохранить</button>
+                <button type="button" id="btnSaveAs">Сохранить как…</button>
+            </div>
+            <form id="shipForm">
+                <div class="section">
+                    <h2>Meta</h2>
+                    <div class="section-body subgrid two">
+                        <div class="field">
+                            <label for="metaId">ID корабля *</label>
+                            <input id="metaId" data-path="meta.id" required placeholder="fighter_v01">
+                        </div>
+                        <div class="field">
+                            <label for="metaClass">Класс *</label>
+                            <input id="metaClass" data-path="meta.class" required placeholder="fighter">
+                        </div>
+                        <div class="field">
+                            <label for="metaName">Название</label>
+                            <input id="metaName" data-path="meta.name" placeholder="U2 Test Fighter">
+                        </div>
+                        <div class="field">
+                            <label for="metaVersion">Версия</label>
+                            <input id="metaVersion" data-path="meta.version" placeholder="0.5.3">
+                        </div>
+                        <div class="field">
+                            <label for="metaAuthor">Автор</label>
+                            <input id="metaAuthor" data-path="meta.author" placeholder="U2 Team">
+                        </div>
+                        <div class="field" style="grid-column: 1 / -1;">
+                            <label for="metaNotes">Заметки</label>
+                            <textarea id="metaNotes" data-path="meta.notes" rows="3"></textarea>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h2>Масса</h2>
+                    <div class="section-body">
+                        <div class="field">
+                            <label for="massKg">Масса, кг *</label>
+                            <input id="massKg" data-path="mass.mass_kg" type="number" min="0" step="1" required>
+                        </div>
+                        <div class="field">
+                            <label class="checkbox-row" for="enableInertia">
+                                <input type="checkbox" id="enableInertia">
+                                Инерционная матрица Izz override
+                            </label>
+                        </div>
+                        <div class="field" id="inertiaField">
+                            <label for="massIzz">Izz, кг·м²</label>
+                            <input id="massIzz" data-path="mass.inertia_override.Izz_kg_m2" type="number" min="0" step="0.01">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h2>Геометрия</h2>
+                    <div class="section-body subgrid two">
+                        <div class="field">
+                            <label for="bboxWidth">Ширина bbox, м *</label>
+                            <input id="bboxWidth" data-path="geometry.bbox_m.width" type="number" min="0" step="0.01" required>
+                        </div>
+                        <div class="field">
+                            <label for="bboxLength">Длина bbox, м *</label>
+                            <input id="bboxLength" data-path="geometry.bbox_m.length" type="number" min="0" step="0.01" required>
+                        </div>
+                        <div class="field" style="grid-column: 1 / -1;">
+                            <label for="hullRadius">Радиус корпуса, м</label>
+                            <input id="hullRadius" data-path="geometry.hull_radius_m" type="number" step="0.01" data-nullable="true">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h2>Спрайт</h2>
+                    <div class="section-body subgrid two">
+                        <div class="field" style="grid-column: 1 / -1;">
+                            <label for="spritePath">Путь к спрайту *</label>
+                            <input id="spritePath" data-path="sprite.path" placeholder="assets/ships/fighter_top.png" required>
+                        </div>
+                        <div class="field">
+                            <label for="spriteWidth">Ширина, px</label>
+                            <input id="spriteWidth" data-path="sprite.size_px.w" type="number" min="0" step="1">
+                        </div>
+                        <div class="field">
+                            <label for="spriteHeight">Высота, px</label>
+                            <input id="spriteHeight" data-path="sprite.size_px.h" type="number" min="0" step="1">
+                        </div>
+                        <div class="field">
+                            <label for="pivotX">Pivot X, px</label>
+                            <input id="pivotX" data-path="sprite.pivot_px.x" type="number" step="0.1">
+                        </div>
+                        <div class="field">
+                            <label for="pivotY">Pivot Y, px</label>
+                            <input id="pivotY" data-path="sprite.pivot_px.y" type="number" step="0.1">
+                        </div>
+                        <div class="field">
+                            <label for="orientation">Ориентация</label>
+                            <select id="orientation" data-path="sprite.orientation">
+                                <option value="nose_right">nose_right</option>
+                                <option value="nose_up">nose_up</option>
+                                <option value="nose_left">nose_left</option>
+                                <option value="nose_down">nose_down</option>
+                            </select>
+                        </div>
+                        <div class="field">
+                            <label for="alphaThreshold">Alpha threshold</label>
+                            <input id="alphaThreshold" data-path="sprite.alpha_thr" type="number" min="0" max="255" step="1">
+                        </div>
+                        <div class="field">
+                            <label for="metersPerPixel">Метров на пиксель *</label>
+                            <input id="metersPerPixel" data-path="sprite.m_per_px" type="number" min="0" step="0.0001" required>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h2>Propulsion</h2>
+                    <div class="section-body">
+                        <div class="field">
+                            <label for="mainThrust">Макс. тяга двигателя, Н *</label>
+                            <input id="mainThrust" data-path="propulsion.main_engine_thrust_max_N" type="number" min="0" step="1000" required>
+                        </div>
+                    </div>
+                </div>
+
+                    <div class="section">
+                    <h2>RCS</h2>
+                    <div class="section-body subgrid three">
+                        <div class="field">
+                            <label for="rcsStrafe">Стрейф тяга, Н *</label>
+                            <input id="rcsStrafe" data-path="rcs.strafe_thrust_N" type="number" min="0" step="100" required>
+                        </div>
+                        <div class="field">
+                            <label for="rcsAlpha">Макс. alpha, рад/c² *</label>
+                            <input id="rcsAlpha" data-path="rcs.turn_alpha_max_radps2" type="number" min="0" step="0.01" required>
+                        </div>
+                        <div class="field">
+                            <label for="rcsOmega">Макс. omega, рад/c *</label>
+                            <input id="rcsOmega" data-path="rcs.turn_omega_max_radps" type="number" min="0" step="0.01" required>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h2>G-Limits</h2>
+                    <div class="section-body">
+                        <div class="field">
+                            <label for="gProfile">Профиль</label>
+                            <input id="gProfile" data-path="g_limits.profile" list="profileList">
+                            <datalist id="profileList">
+                                <option value="sport">
+                                <option value="courier">
+                                <option value="interceptor">
+                                <option value="fighter">
+                                <option value="military.medium">
+                                <option value="military.heavy">
+                                <option value="freighter">
+                                <option value="passenger">
+                                <option value="drone">
+                            </datalist>
+                        </div>
+                        <div class="subgrid four">
+                            <div class="field">
+                                <label for="longSustained">Long. sustained g *</label>
+                                <input id="longSustained" data-path="g_limits.longitudinal.sustained_g" type="number" step="0.1" required>
+                            </div>
+                            <div class="field">
+                                <label for="longBurst">Long. burst g *</label>
+                                <input id="longBurst" data-path="g_limits.longitudinal.burst_g" type="number" step="0.1" required>
+                            </div>
+                            <div class="field">
+                                <label for="longBurstDuration">Long. burst, c *</label>
+                                <input id="longBurstDuration" data-path="g_limits.longitudinal.burst_duration_s" type="number" step="0.1" required>
+                            </div>
+                            <div class="field">
+                                <label for="longRecovery">Long. recovery, c *</label>
+                                <input id="longRecovery" data-path="g_limits.longitudinal.recovery_cooldown_s" type="number" step="0.1" required>
+                            </div>
+                            <div class="field">
+                                <label for="latSustained">Lat. sustained g *</label>
+                                <input id="latSustained" data-path="g_limits.lateral.sustained_g" type="number" step="0.1" required>
+                            </div>
+                            <div class="field">
+                                <label for="latBurst">Lat. burst g *</label>
+                                <input id="latBurst" data-path="g_limits.lateral.burst_g" type="number" step="0.1" required>
+                            </div>
+                            <div class="field">
+                                <label for="latBurstDuration">Lat. burst, c *</label>
+                                <input id="latBurstDuration" data-path="g_limits.lateral.burst_duration_s" type="number" step="0.1" required>
+                            </div>
+                            <div class="field">
+                                <label for="latRecovery">Lat. recovery, c *</label>
+                                <input id="latRecovery" data-path="g_limits.lateral.recovery_cooldown_s" type="number" step="0.1" required>
+                            </div>
+                        </div>
+                        <div class="subgrid two">
+                            <div class="field">
+                                <label for="smoothingTau">Smoothing tau, c *</label>
+                                <input id="smoothingTau" data-path="g_limits.behavior.smoothing_tau_s" type="number" step="0.01" required>
+                            </div>
+                            <div class="field">
+                                <label for="blackoutModel">Blackout model</label>
+                                <input id="blackoutModel" data-path="g_limits.behavior.blackout_model" list="blackoutList">
+                                <datalist id="blackoutList">
+                                    <option value="none">
+                                    <option value="basic">
+                                    <option value="gritty">
+                                </datalist>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h2>Assist</h2>
+                    <div class="section-body subgrid two">
+                        <div class="field">
+                            <label class="checkbox-row" for="assistCoupled">
+                                <input type="checkbox" id="assistCoupled" data-path="assist.coupled_enabled">
+                                Coupled режим по умолчанию
+                            </label>
+                        </div>
+                        <div class="field">
+                            <label for="assistOmega">Omega cap, рад/c *</label>
+                            <input id="assistOmega" data-path="assist.coupled_omega_cap_radps" type="number" step="0.01" required>
+                        </div>
+                        <div class="field">
+                            <label for="assistAlpha">Alpha cap, рад/c² *</label>
+                            <input id="assistAlpha" data-path="assist.coupled_alpha_cap_radps2" type="number" step="0.01" required>
+                        </div>
+                        <div class="field">
+                            <label for="assistAlign">Align gain *</label>
+                            <input id="assistAlign" data-path="assist.coupled_align_gain" type="number" step="0.01" required>
+                        </div>
+                        <div class="field">
+                            <label for="assistDeadzone">Deadzone, град *</label>
+                            <input id="assistDeadzone" data-path="assist.coupled_deadzone_deg" type="number" step="0.1" required>
+                        </div>
+                        <div class="field">
+                            <label for="assistAutobrake">Autobrake eps, м/с *</label>
+                            <input id="assistAutobrake" data-path="assist.autobrake_eps_mps" type="number" step="0.01" required>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h2>Spawn</h2>
+                    <div class="section-body">
+                        <div class="field">
+                            <label for="spawnGrace">Spawn grace, c *</label>
+                            <input id="spawnGrace" data-path="spawn.spawn_grace_seconds" type="number" min="0" step="0.1" required>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="section">
+                    <h2>Теги</h2>
+                    <div class="section-body">
+                        <div class="field">
+                            <label for="tagInput">Добавить тег</label>
+                            <input id="tagInput" placeholder="fighter">
+                        </div>
+                        <div class="toolbar" style="grid-template-columns: 1fr;">
+                            <button type="button" id="btnAddTag">Добавить</button>
+                        </div>
+                        <div id="tagList"></div>
+                    </div>
+                </div>
+            </form>
+        </aside>
+        <main class="panel main">
+            <div class="main-content">
+                <section class="preview-card">
+                    <div class="preview-header">
+                        <h2>Превью спрайта</h2>
+                        <div class="preview-controls">
+                            <label for="previewScale">Масштаб</label>
+                            <input type="range" id="previewScale" min="0.1" max="2" step="0.05" value="0.5">
+                        </div>
+                    </div>
+                    <div class="preview-stage">
+                        <button type="button" id="btnLoadSprite" class="sprite-load-button">Файл…</button>
+                        <canvas id="spriteCanvas" width="512" height="512"></canvas>
+                    </div>
+                    <div class="summary" id="spriteSummary">
+                        <div class="summary-content" id="spriteSummaryContent">Спрайт не загружен</div>
+                        <div class="hint">При выборе файла размеры обновятся автоматически. Pivot можно задать кликом по превью.</div>
+                    </div>
+                </section>
+                <section class="json-card">
+                    <div class="json-header">
+                        <h2>ShipConfig JSON</h2>
+                        <div class="preview-controls">
+                            <button type="button" id="btnCopyJson">Скопировать</button>
+                        </div>
+                    </div>
+                    <div class="json-viewer">
+                        <textarea id="jsonPreview" readonly spellcheck="false"></textarea>
+                    </div>
+                    <div class="status-bar">
+                        Статус: <span id="statusText">Готово</span>
+                    </div>
+                    <div class="messages" id="messageList"></div>
+                </section>
+            </div>
+        </main>
+    </div>
+
+    <input type="file" id="openFileInput" hidden accept=".json,application/json">
+    <input type="file" id="spriteFileInput" hidden accept="image/*">
+
+    <script type="module" src="js/ship-config-editor.js"></script>
+</body>
+</html>
